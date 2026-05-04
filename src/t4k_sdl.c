@@ -39,9 +39,17 @@ SDL_Window* t4k_window = NULL;
 static ResSwitchCallback res_switch_callback = NULL;
 static ResSwitchCallback internal_res_switch_callback = NULL;
 
+/* SDL3 port: we render everything into a fixed-size logical backing surface
+ * so games designed for 640x480 keep their layout regardless of the actual
+ * window/fullscreen resolution. T4K_UpdateRect blits this scaled (preserving
+ * aspect, letterboxed) onto the real window surface. */
+#define T4K_LOGICAL_W 640
+#define T4K_LOGICAL_H 480
+static SDL_Surface* t4k_backing = NULL;
+
 /* window size */
-int win_res_x = 640;
-int win_res_y = 480;
+int win_res_x = T4K_LOGICAL_W;
+int win_res_y = T4K_LOGICAL_H;
 
 /* full screen size (set in initialize_SDL() ) */
 int fs_res_x = 0;
@@ -54,21 +62,75 @@ int fs_res_y = 0;
 void T4K_RegisterWindow(SDL_Window* w)
 {
     t4k_window = w;
+    if (t4k_backing)
+    {
+	SDL_DestroySurface(t4k_backing);
+	t4k_backing = NULL;
+    }
     if (w)
     {
 	int w_x, w_y;
 	SDL_GetWindowSize(w, &w_x, &w_y);
 	win_res_x = w_x;
 	win_res_y = w_y;
-	/* Populate the screen global immediately so callers that bypass
-	 * T4K_GetScreen() (e.g. T4K_SetRect, T4K_DarkenScreen) don't
-	 * dereference NULL. */
-	screen = SDL_GetWindowSurface(w);
+	/* Allocate the backing surface at logical resolution. All game
+	 * drawing goes here, then T4K_UpdateRect scales it to the window. */
+	SDL_Surface* win_surf = SDL_GetWindowSurface(w);
+	SDL_PixelFormat fmt = win_surf ? win_surf->format : SDL_PIXELFORMAT_RGBA8888;
+	t4k_backing = SDL_CreateSurface(T4K_LOGICAL_W, T4K_LOGICAL_H, fmt);
+	screen = t4k_backing;
     }
     else
     {
 	screen = NULL;
     }
+}
+
+/* Compute the target rect on the window surface for the backing blit,
+ * preserving aspect ratio with letterbox/pillarbox. */
+static void t4k_compute_present_rect(SDL_Rect* out)
+{
+    int win_w = T4K_LOGICAL_W, win_h = T4K_LOGICAL_H;
+    if (t4k_window) SDL_GetWindowSize(t4k_window, &win_w, &win_h);
+    /* Surface size may differ from logical window size on HiDPI; use the
+     * window-surface dims for the actual blit target. */
+    SDL_Surface* ws = t4k_window ? SDL_GetWindowSurface(t4k_window) : NULL;
+    if (ws) { win_w = ws->w; win_h = ws->h; }
+
+    float src_aspect = (float)T4K_LOGICAL_W / (float)T4K_LOGICAL_H;
+    float dst_aspect = (float)win_w / (float)win_h;
+    if (dst_aspect > src_aspect) {
+	/* Window is wider than logical → pillarbox left/right */
+	out->h = win_h;
+	out->w = (int)(win_h * src_aspect + 0.5f);
+	out->x = (win_w - out->w) / 2;
+	out->y = 0;
+    } else {
+	/* Window is taller than logical → letterbox top/bottom */
+	out->w = win_w;
+	out->h = (int)(win_w / src_aspect + 0.5f);
+	out->x = 0;
+	out->y = (win_h - out->h) / 2;
+    }
+}
+
+/* Push the backing surface to the window, scaling to fit + letterboxing. */
+static void t4k_present(void)
+{
+    if (!t4k_window || !t4k_backing) return;
+    SDL_Surface* ws = SDL_GetWindowSurface(t4k_window);
+    if (!ws) return;
+    SDL_Rect dst;
+    t4k_compute_present_rect(&dst);
+    /* Clear the letterbox area to black before scaling the backing in. */
+    if (dst.x > 0 || dst.y > 0 ||
+	dst.w < ws->w || dst.h < ws->h)
+    {
+	SDL_FillSurfaceRect(ws, NULL,
+	    SDL_MapRGB(SDL_GetPixelFormatDetails(ws->format), NULL, 0, 0, 0));
+    }
+    SDL_BlitSurfaceScaled(t4k_backing, NULL, ws, &dst, SDL_SCALEMODE_LINEAR);
+    SDL_UpdateWindowSurface(t4k_window);
 }
 
 const char* _font_name = DEFAULT_FONT_NAME;
@@ -84,18 +146,17 @@ const char* T4K_AskFontName()
     return _font_name;
 }
 
-/* In SDL3, the window surface is owned by the window. Always re-query so
- * we pick up surface invalidations from window resize/move. */
+/* Returns the logical backing surface (always T4K_LOGICAL_W x T4K_LOGICAL_H).
+ * All game rendering targets this; T4K_UpdateRect scales it to the window. */
 SDL_Surface* T4K_GetScreen()
 {
-    if (!t4k_window)
+    if (!t4k_backing)
     {
-	fprintf(stderr, "T4K_GetScreen(): no window registered. "
+	fprintf(stderr, "T4K_GetScreen(): no backing surface. "
 			"Call T4K_RegisterWindow() after SDL_CreateWindow.\n");
 	return NULL;
     }
-    screen = SDL_GetWindowSurface(t4k_window);
-    return screen;
+    return t4k_backing;
 }
 
 
@@ -465,7 +526,7 @@ void T4K_UpdateRect(SDL_Surface* surf, SDL_Rect* rect)
     (void)surf;
     (void)rect;
     if (t4k_window)
-	SDL_UpdateWindowSurface(t4k_window);
+    t4k_present();
 }
 
 void T4K_SetRect(SDL_Rect* rect, const float* pos)
@@ -533,7 +594,7 @@ void T4K_ChangeWindowSize(int new_res_x, int new_res_y)
     if (res_switch_callback)
 	res_switch_callback(win_res_x, win_res_y);
 
-    SDL_UpdateWindowSurface(t4k_window);
+    t4k_present();
 }
 
 /* switch between fullscreen and windowed mode */
@@ -562,7 +623,7 @@ void T4K_SwitchScreenMode(void)
     if (internal_res_switch_callback)
 	internal_res_switch_callback(w, h);
 
-    SDL_UpdateWindowSurface(t4k_window);
+    t4k_present();
 }
 
 void internal_res_switch_handler(ResSwitchCallback callback)
@@ -783,7 +844,7 @@ int T4K_TransWipe(const SDL_Surface* newbkg, WipeStyle type, int segments, int d
 			T4K_AddRect(&src, &src);
 			T4K_AddRect(&dst, &dst);
 		    }
-		    if (t4k_window) SDL_UpdateWindowSurface(t4k_window);
+		    t4k_present();
 		    SDL_Delay(10);
 		}
 
@@ -792,7 +853,7 @@ int T4K_TransWipe(const SDL_Surface* newbkg, WipeStyle type, int segments, int d
 		src.w = screen->w;
 		src.h = screen->h;
 		SDL_BlitSurface((SDL_Surface*)newbkg, NULL, screen, &src);
-		if (t4k_window) SDL_UpdateWindowSurface(t4k_window);
+		t4k_present();
 
 		break;
 	    }
@@ -823,7 +884,7 @@ int T4K_TransWipe(const SDL_Surface* newbkg, WipeStyle type, int segments, int d
 			T4K_AddRect(&src, &src);
 			T4K_AddRect(&dst, &dst);
 		    }
-		    if (t4k_window) SDL_UpdateWindowSurface(t4k_window);
+		    t4k_present();
 		    SDL_Delay(10);
 		}
 
@@ -832,7 +893,7 @@ int T4K_TransWipe(const SDL_Surface* newbkg, WipeStyle type, int segments, int d
 		src.w = screen->w;
 		src.h = screen->h;
 		SDL_BlitSurface((SDL_Surface*)newbkg, NULL, screen, &src);
-		if (t4k_window) SDL_UpdateWindowSurface(t4k_window);
+		t4k_present();
 
 		break;
 	    }
@@ -876,7 +937,7 @@ int T4K_TransWipe(const SDL_Surface* newbkg, WipeStyle type, int segments, int d
 			T4K_AddRect(&src, &src);
 			T4K_AddRect(&dst, &dst);
 		    }
-		    if (t4k_window) SDL_UpdateWindowSurface(t4k_window);
+		    t4k_present();
 		    SDL_Delay(10);
 		}
 
@@ -885,7 +946,7 @@ int T4K_TransWipe(const SDL_Surface* newbkg, WipeStyle type, int segments, int d
 		src.w = screen->w;
 		src.h = screen->h;
 		SDL_BlitSurface((SDL_Surface*)newbkg, NULL, screen, &src);
-		if (t4k_window) SDL_UpdateWindowSurface(t4k_window);
+		t4k_present();
 
 		break;
 	    }
@@ -1112,7 +1173,10 @@ void T4K_UpdateScreen(int* frame)
     //  if (SNOW_on)
     //    SDL_UpdateRects(screen, SNOW_add( (SDL_Rect*)&dstupdate, numupdates ), SNOW_rects);
     //  else
-    if (t4k_window) SDL_UpdateWindowSurfaceRects(t4k_window, dstupdate, numupdates);
+    /* Backing-surface model: ignore the per-rect optimization and just
+     * scale-blit the whole backing on every update. */
+    (void)dstupdate; (void)numupdates;
+    t4k_present();
 
     numupdates = 0;
     *frame = *frame + 1;
