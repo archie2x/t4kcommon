@@ -51,6 +51,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 extern SDL_Thread *tts_thread;
 extern int text_to_speech_status;
 
+/* SDL3: registered by host app via T4K_RegisterWindow(). Used by
+ * T4K_GetScreen, T4K_UpdateRect, T4K_SwitchScreenMode, T4K_ChangeWindowSize. */
+extern SDL_Window* t4k_window;
 
 extern int debug_status;
 

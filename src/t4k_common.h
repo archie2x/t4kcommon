@@ -948,6 +948,20 @@ void T4K_OnResolutionSwitch( ResSwitchCallback callback );
 
 //==============================================================================
 //
+//  T4K_RegisterWindow
+//
+//! \brief
+//!     Register the SDL_Window* the application created with SDL_CreateWindow.
+//!     Required after SDL3 because t4k_common no longer creates the screen
+//!     surface itself; T4K_GetScreen, T4K_UpdateRect, T4K_SwitchScreenMode and
+//!     T4K_ChangeWindowSize all operate on the registered window.
+//!
+//! \param window The SDL_Window* to use, or NULL to clear.
+//!
+void T4K_RegisterWindow(SDL_Window* window);
+
+//==============================================================================
+//
 //  T4K_zoom
 //
 //! \brief 

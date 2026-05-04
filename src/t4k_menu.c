@@ -151,7 +151,7 @@ SDL_Surface**   render_buttons(MenuNode* menu, bool selected);
 char*           find_title_length(MenuNode* menu, int* length);
 char*           find_longest_text(MenuNode* menu, int* length);
 int             find_longest_menu_page(MenuNode* menu);
-void            set_font_size();
+void            set_font_size(bool uniform);
 void            prerender_menu(MenuNode* menu);
 int		min(int a, int b);
 int		max(int a, int b);
@@ -159,6 +159,13 @@ void            prerender_panel();
 
 /* Calculated estimate of chars per line fitting into desc_panel */
 int desc_chars_per_line(int fontsize);
+
+/* Adapter: T4K_PrerenderAll is void(void), ResSwitchCallback is void(int,int) */
+static void menu_prerender_thunk(int w, int h)
+{
+    (void)w; (void)h;
+    T4K_PrerenderAll();
+}
 
 void set_font_size_explicitly(MenuNode* menu, int size);
 void set_menu_font_size(MenuNode* menu);
@@ -455,7 +462,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
     int click_flag = 1;
     int using_scroll = 0;
 
-    internal_res_switch_handler(&T4K_PrerenderAll);
+    internal_res_switch_handler(menu_prerender_thunk);
 
     for(;;) /* one loop body execution for one menu page */
     {
@@ -508,9 +515,9 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 
 	prerender_panel();
 
-	SDL_UpdateRect(T4K_GetScreen(), 0, 0, 0, 0);
+	T4K_UpdateRect(T4K_GetScreen(), NULL);
 
-	SDL_WM_GrabInput(SDL_GRAB_OFF);
+	if (t4k_window) SDL_SetWindowMouseGrab(t4k_window, false);
 
 	while (SDL_PollEvent(&event));  // clear pending events
 
@@ -527,7 +534,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 		switch (event.type)
 		{
 		    /* user decided to quit the application (for example by closing the window) */
-		    case SDL_QUIT:
+		    case SDL_EVENT_QUIT:
 			{
 			    T4K_FreeSurfaceArray(menu_item_unselected, items);
 			    T4K_FreeSurfaceArray(menu_item_selected, items);
@@ -536,7 +543,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 			    return QUIT;
 			}
 
-		    case SDL_MOUSEMOTION:
+		    case SDL_EVENT_MOUSE_MOTION:
 			{
 			    if(!using_scroll)
 				loc = -1;
@@ -592,43 +599,45 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 			    break;
 			}
 
-		    case SDL_MOUSEBUTTONDOWN:
+		    /* SDL3: mouse wheel is its own event, not button up/down */
+		    case SDL_EVENT_MOUSE_WHEEL:
 			{
-			    /* Handle scroll events: */
-			    if(event.button.button == SDL_BUTTON_WHEELUP)
+			    if (event.wheel.y > 0) /* wheel up */
 			    {
 				using_scroll = 1;
 				if(snd_hover)
 				    T4K_PlaySound(snd_hover);
 				if (loc > 0)
 				    loc--;
-				else if (menu->submenu_size <= menu->entries_per_screen) 
-				    loc = menu->submenu_size - 1;  // wrap around if only 1 T4K_GetScreen()
+				else if (menu->submenu_size <= menu->entries_per_screen)
+				    loc = menu->submenu_size - 1;
 				else if (menu->first_entry > 0)
 				{
 				    loc = menu->entries_per_screen - 1;
 				    action = PAGEUP;
 				}
-				break;
 			    }
-
-			    else if(event.button.button == SDL_BUTTON_WHEELDOWN)
+			    else if (event.wheel.y < 0) /* wheel down */
 			    {
 				using_scroll = 1;
 				if(snd_hover)
 				    T4K_PlaySound(snd_hover);
 				if (loc + 1 < min(menu->submenu_size, menu->entries_per_screen))
 				    loc++;
-				else if (menu->submenu_size <= menu->entries_per_screen) 
-				    loc = 0;  // wrap around if only 1 T4K_GetScreen()
+				else if (menu->submenu_size <= menu->entries_per_screen)
+				    loc = 0;
 				else if (menu->first_entry + menu->entries_per_screen < menu->submenu_size)
 				{
 				    loc = 0;
 				    action = PAGEDOWN;
 				}
-				break;
 			    }
-			    else for (i = 0; i < items; i++) //Handle non-scroll events within button rects
+			    break;
+			}
+
+		    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+			{
+			    for (i = 0; i < items; i++) //Handle button click events within button rects
 			    {
 				if (T4K_inRect(menu->submenu[menu->first_entry + i]->button_rect, event.motion.x, event.motion.y))
 				{
@@ -705,7 +714,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 				    /* Go to previous page, if present: */
 				case SDLK_LEFT:
 				case SDLK_PAGEUP:
-				case SDLK_h:   //(Vim-like, see also below.)
+				case SDLK_H:   //(Vim-like, see also below.)
 				    {
 					if(snd_click)
 					    T4K_PlaySound(snd_click);
@@ -717,7 +726,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 				    /* Go to next page, if present: */
 				case SDLK_RIGHT:
 				case SDLK_PAGEDOWN:
-				case SDLK_l:
+				case SDLK_L:
 				    {
 					if(snd_click)
 					    T4K_PlaySound(snd_click);
@@ -728,7 +737,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 
 				    /* Go up one entry, if present: */
 				case SDLK_UP:
-				case SDLK_k:    // For grade-school Vim users
+				case SDLK_K:    // For grade-school Vim users
 				    {
 					if(snd_hover)
 					    T4K_PlaySound(snd_hover);
@@ -745,7 +754,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 				    }
 
 				case SDLK_DOWN:
-				case SDLK_j:    // For grade-school Vim users
+				case SDLK_J:    // For grade-school Vim users
 				    {
 					if(snd_hover)
 					    T4K_PlaySound(snd_hover);
@@ -764,7 +773,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 				case SDLK_TAB:
 				    {
 					/* See if [Shift] pressed to decide if we go up or down: */
-					if(event.key.keysym.mod & KMOD_SHIFT) //go up
+					if(event.key.mod & SDL_KMOD_SHIFT) //go up
 					{
 					    if(snd_hover)
 						T4K_PlaySound(snd_hover);
@@ -860,7 +869,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 			if(menu->submenu[menu->first_entry + old_loc]->icon)
 			    SDL_BlitSurface(menu->submenu[menu->first_entry + old_loc]->icon->default_img,
 				    NULL, T4K_GetScreen(), &menu->submenu[menu->first_entry + old_loc]->icon_rect);
-			SDL_UpdateRect(T4K_GetScreen(), tmp_rect.x, tmp_rect.y, tmp_rect.w, tmp_rect.h);
+			T4K_UpdateRect(T4K_GetScreen(), NULL);
 		    }
 
 		    /* Announce the menu item if index is not out of bonds */
@@ -886,7 +895,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 				    NULL, T4K_GetScreen(), &menu->submenu[menu->first_entry + loc]->icon_rect);
 			    menu->submenu[menu->first_entry + loc]->icon->cur = 0;
 			}
-			SDL_UpdateRect(T4K_GetScreen(), tmp_rect.x, tmp_rect.y, tmp_rect.w, tmp_rect.h);
+			T4K_UpdateRect(T4K_GetScreen(), NULL);
 
 			// Set and render new description text
 			{
@@ -909,7 +918,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 			    SDL_Rect pos = {T4K_GetScreen()->w * desc_panel_pos[0], T4K_GetScreen()->h * desc_panel_pos[1]};
 			    SDL_BlitSurface(desc_panel, NULL, T4K_GetScreen(), &pos);
 			    SDL_BlitSurface(desc_prerendered, NULL, T4K_GetScreen(), &pos);
-			    SDL_Flip(T4K_GetScreen());
+			    T4K_UpdateRect(T4K_GetScreen(), NULL);
 			}
 
 		    }
@@ -1065,7 +1074,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 		SDL_Rect pos = {T4K_GetScreen()->w * desc_panel_pos[0], T4K_GetScreen()->h * desc_panel_pos[1]};
 		SDL_BlitSurface(desc_panel, NULL, T4K_GetScreen(), &pos);
 		SDL_BlitSurface(desc_prerendered, NULL, T4K_GetScreen(), &pos);
-		SDL_Flip(T4K_GetScreen());
+		T4K_UpdateRect(T4K_GetScreen(), NULL);
 	    }
 
 	    /* Wait so we keep frame rate constant: */
@@ -1126,11 +1135,8 @@ SDL_Surface** render_buttons(MenuNode* menu, bool selected)
     for (i = 0; i < items; i++)
     {
 	curr_rect = menu->submenu[menu->first_entry + i]->button_rect;
-	menu_items[i] = SDL_CreateRGBSurface(SDL_SWSURFACE|SDL_SRCALPHA,
-		curr_rect.w,
-		curr_rect.h,
-		32,
-		rmask, gmask, bmask, amask);
+	menu_items[i] = SDL_CreateSurface(curr_rect.w, curr_rect.h,
+		SDL_PIXELFORMAT_RGBA8888);
 
 	SDL_BlitSurface(T4K_GetScreen(), &curr_rect, menu_items[i], NULL);
 	/* button */
@@ -1479,7 +1485,7 @@ void T4K_PrerenderAll()
     for(i = 0; i < N_OF_MENUS; i++)
 	if(menus[i])
 	    T4K_PrerenderMenu(i);
-    SDL_UpdateRect(T4K_GetScreen(), 0, 0, 0, 0);
+    T4K_UpdateRect(T4K_GetScreen(), NULL);
 }
 
 int min(int a, int b)

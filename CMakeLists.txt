@@ -77,6 +77,7 @@ target_include_directories(t4k_common
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
         ${CMAKE_CURRENT_SOURCE_DIR}/src/linebreak
 )
 
@@ -87,8 +88,19 @@ target_compile_definitions(t4k_common PRIVATE
     HAVE_LIBSDL_TTF=1
     HAVE_LIBPNG=1
     HAVE_LIBXML2=1
+    HAVE_SCANDIR=1
+    HAVE_ALPHASORT=1
+    HAVE_INLINE=1
     PACKAGE="${PROJECT_NAME}"
+    PACKAGE_STRING="${PROJECT_NAME} ${PROJECT_VERSION}"
+    VERSION="${PROJECT_VERSION}"
     LOCALEDIR="${CMAKE_INSTALL_FULL_LOCALEDIR}"
+    # Bundled gnulib unistr feature macros (linebreak helper):
+    GNULIB_UNISTR_U8_MBTOUC=1
+    GNULIB_UNISTR_U8_MBTOUC_UNSAFE=1
+    GNULIB_UNISTR_U16_MBTOUC=1
+    GNULIB_UNISTR_U16_MBTOUC_UNSAFE=1
+    GNULIB_UNISTR_U8_UCTOMB=1
 )
 
 # SDL3, SDL3_image are exposed by t4k_common.h → PUBLIC
@@ -108,7 +120,6 @@ target_link_libraries(t4k_common
 set_target_properties(t4k_common PROPERTIES
     VERSION ${PROJECT_VERSION}
     SOVERSION 0
-    C_VISIBILITY_PRESET hidden
     PUBLIC_HEADER "src/t4k_common.h;src/t4k_alphasort.h;src/t4k_scandir.h"
 )
 
@@ -133,6 +144,9 @@ endif()
 if(BUILD_TESTING)
     add_executable(t4k_test src/t4k_test.c)
     target_link_libraries(t4k_test PRIVATE t4k_common)
+    target_compile_definitions(t4k_test PRIVATE
+        VERSION="${PROJECT_VERSION}"
+    )
 endif()
 
 # ---------------------------------------------------------------------------
