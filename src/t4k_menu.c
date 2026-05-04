@@ -127,7 +127,10 @@ const float menu_pos[4] = {0.38, 0.23, 0.55, 0.72};
 const float stop_pos[4] = {0.94, 0.0, 0.06, 0.06};
 const float prev_pos[4] = {0.87, 0.93, 0.06, 0.06};
 const float next_pos[4] = {0.94, 0.93, 0.06, 0.06};
-const float desc_panel_pos[4] = {0.05, 0.3, 0.3, 0.5};
+/* Moved up from y=0.3,h=0.5 (which ended at 0.8 and overlapped Tux's head)
+ * to y=0.13,h=0.40 (ends at 0.53, well above Tux). Avoids the per-frame
+ * snapshot/animation flicker described in the SDL3 port notes. */
+const float desc_panel_pos[4] = {0.05, 0.13, 0.3, 0.40};
 const char* stop_path = "menu/stop.svg";
 const char* prev_path = "menu/left.svg";
 const char* next_path = "menu/right.svg";
@@ -639,7 +642,7 @@ int T4K_RunMenu(int index, bool return_choice, void (*draw_background)(), int (*
 			{
 			    for (i = 0; i < items; i++) //Handle button click events within button rects
 			    {
-				if (T4K_inRect(menu->submenu[menu->first_entry + i]->button_rect, event.motion.x, event.motion.y))
+				if (T4K_inRect(menu->submenu[menu->first_entry + i]->button_rect, event.button.x, event.button.y))
 				{
 				    // Play sound if loc is being changed:
 				    if(snd_click)
@@ -1111,9 +1114,18 @@ void prerender_panel() {
 	T4K_GetScreen()->h * desc_panel_pos[3]};
     if(desc_panel != NULL)
 	SDL_DestroySurface(desc_panel);
-    desc_panel = T4K_CreateButton(panelclip.w - panelclip.x, panelclip.h - panelclip.y, 8, 0xff, 0xff, 0xff, 100);
+    /* Old code passed (w-x, h-y) here, treating panelclip.w/h as right/bottom
+     * edges instead of width/height. Use the rect's actual width/height. */
+    desc_panel = T4K_CreateButton(panelclip.w, panelclip.h, 8, 0xff, 0xff, 0xff, 100);
+    /* Composite the translucent button over the current screen contents at
+     * the panel position, then capture the composite back into desc_panel.
+     * desc_panel becomes an opaque "panel-on-bkg" snapshot used to clear
+     * the description area between text changes. */
     SDL_BlitSurface(desc_panel, NULL, T4K_GetScreen(), &panelclip);
     SDL_BlitSurface(T4K_GetScreen(), &panelclip, desc_panel, NULL);
+    /* Make the snapshot blit opaquely; we don't want cumulative alpha if
+     * it gets blitted multiple times. */
+    SDL_SetSurfaceBlendMode(desc_panel, SDL_BLENDMODE_NONE);
 }
 
 /* return button surfaces that are currently displayed (without sprites) */

@@ -153,6 +153,9 @@ SDL_Surface* T4K_CreateButton(int w, int h, int radius,
     /* NOTE - we use a 32-bit temp surface even if we have a 16-bit */
     /* screen - it gets converted during blitting.                  */
     SDL_Surface* tmp_surf = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA8888);
+    /* SDL3 surfaces default to SDL_BLENDMODE_NONE; without this the alpha
+     * channel is ignored on blit and the button appears fully opaque. */
+    SDL_SetSurfaceBlendMode(tmp_surf, SDL_BLENDMODE_BLEND);
 
     Uint32 color = SDL_MapRGBA(SDL_GetPixelFormatDetails(tmp_surf->format), NULL, r, g, b, a);
     SDL_FillSurfaceRect(tmp_surf, NULL, color);
@@ -1295,7 +1298,14 @@ SDL_Surface* T4K_BlackOutline(const char* t, int size, const SDL_Color* c)
     DEBUGMSG(debug_sdl, "Entering T4K_BlackOutline():\n");
     DEBUGMSG(debug_sdl, "BlackOutline of \"%s\"\n", t );
 
-    black_letters = TTF_RenderText_Blended(font, t, 0, black);
+    /* If caller already inserted newlines (e.g. T4K_LineWrapInsBreaks for
+     * the menu description panel), use the wrapping variant so they're
+     * honored. wrapLength=0 means "wrap at newlines only". */
+    bool multiline = (strchr(t, '\n') != NULL);
+    if (multiline)
+	black_letters = TTF_RenderText_Blended_Wrapped(font, t, 0, black, 0);
+    else
+	black_letters = TTF_RenderText_Blended(font, t, 0, black);
 
     if (!black_letters)
     {
@@ -1322,7 +1332,10 @@ SDL_Surface* T4K_BlackOutline(const char* t, int size, const SDL_Color* c)
     SDL_DestroySurface(black_letters);
 
     /* --- Put the color version of the text on top! --- */
-    white_letters = TTF_RenderText_Blended(font, t, 0, *c);
+    if (multiline)
+	white_letters = TTF_RenderText_Blended_Wrapped(font, t, 0, *c, 0);
+    else
+	white_letters = TTF_RenderText_Blended(font, t, 0, *c);
 
     if (!white_letters)
     {
