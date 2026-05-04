@@ -115,7 +115,7 @@ void T4K_DrawButtonOn(SDL_Surface* target,
     SDL_Surface* tmp_surf = T4K_CreateButton(target_rect->w, target_rect->h,
 	    radius, r, g, b, a);
     SDL_BlitSurface(tmp_surf, NULL, target, target_rect);
-    SDL_FreeSurface(tmp_surf);
+    SDL_DestroySurface(tmp_surf);
 }
 
 
@@ -316,18 +316,18 @@ SDL_Surface* T4K_Flip( SDL_Surface *in, int x, int y ) {
 	in->flags |= SDL_SRCCOLORKEY;
 	in->format->colorkey = colorkey;
 	tmp = SDL_DisplayFormat(out);
-	SDL_FreeSurface(out);
+	SDL_DestroySurface(out);
 	out = tmp;
 	out->flags |= SDL_SRCCOLORKEY;
 	out->format->colorkey = colorkey;
     } else if (flags & SDL_SRCALPHA) {
 	in->flags |= SDL_SRCALPHA;
 	tmp = SDL_DisplayFormatAlpha(out);
-	SDL_FreeSurface(out);
+	SDL_DestroySurface(out);
 	out = tmp;
     } else {
 	tmp = SDL_DisplayFormat(out);
-	SDL_FreeSurface(out);
+	SDL_DestroySurface(out);
 	out = tmp;
     }
 
@@ -441,7 +441,7 @@ SDL_Surface* T4K_Blend(SDL_Surface *S1, SDL_Surface *S2, float gamma)
 	SDL_UnlockSurface(S2);
 
     ret = SDL_DisplayFormatAlpha(tmpS);
-    SDL_FreeSurface(tmpS);
+    SDL_DestroySurface(tmpS);
 
     return ret;
 }
@@ -457,7 +457,7 @@ void T4K_FreeSurfaceArray(SDL_Surface** surfs, int length)
 
     for(i = 0; i < length; i++)
 	if(surfs[i] != NULL)
-	    SDL_FreeSurface(surfs[i]);
+	    SDL_DestroySurface(surfs[i]);
     free(surfs);
 }
 
@@ -595,25 +595,9 @@ void T4K_OnResolutionSwitch (ResSwitchCallback callback)
     res_switch_callback = callback;
 }
 
-/*
-   Block application until SDL receives an appropriate event. Events can be
-   a single or OR'd combination of event masks.
-   e.g. e = T4K_WaitForEvent(SDL_KEYDOWNMASK | SDL_QUITMASK)
-   */
-SDL_EventType T4K_WaitForEvent(SDL_EventMask events)
-{
-    SDL_Event evt;
-    while (1)
-    {
-	while (SDL_PollEvent(&evt) )
-	{
-	    if (SDL_EVENTMASK(evt.type) & events)
-		return evt.type;
-	    else
-		SDL_Delay(50);
-	}
-    }
-}
+/* T4K_WaitForEvent removed in SDL3 port — SDL_EventMask/SDL_EVENTMASK are gone
+ * in SDL3 and the function had no callers outside this file. */
+
 /* Swiped shamelessly from TuxPaint
    Based on code from: http://www.codeproject.com/cs/media/imageprocessing4.asp
    copyright 2002 Christian Graus */
@@ -1267,69 +1251,38 @@ int T4K_EraseObject(SDL_Surface* surf, SDL_Surface* curr_bkgd, int x, int y)
 //NOTE to test program with SDL_ttf, do "./configure --without-sdlpango"
 
 
-/*-- file-scope variables and local file prototypes for SDL_Pango-based code: */
-#if HAVE_LIBSDL_PANGO
-#include "SDL_Pango.h"
-SDLPango_Context* context = NULL;
-static SDLPango_Matrix* SDL_Colour_to_SDLPango_Matrix(const SDL_Color* cl);
-static int Set_SDL_Pango_Font_Size(int size);
-
-/*-- file-scope variables and local file prototypes for SDL_ttf-based code: */
-#else
-#include "SDL_ttf.h"
+/*-- file-scope variables and local file prototypes for SDL3_ttf-based code: */
+#include <SDL3_ttf/SDL_ttf.h>
 /* We cache fonts here once loaded to improve performance: */
 TTF_Font* font_list[MAX_FONT_SIZE + 1] = {NULL};
 static void free_font_list(void);
 static TTF_Font* get_font(int size);
 static TTF_Font* load_font(const char* font_name, int font_size);
-#endif
 
 
 /* "Public" functions called from other files that use either */
 /*SDL_Pango or SDL_ttf:                                       */
 
 
-/* For setup, we either initialize SDL_Pango and set its context, */
-/* or we initialize SDL_ttf:                                      */
+/* Initialize SDL3_ttf: */
 int T4K_Setup_SDL_Text(void)
 {
-#if HAVE_LIBSDL_PANGO
+    DEBUGMSG(debug_sdl, "T4K_Setup_SDL_Text() - using SDL3_ttf\n");
 
-    DEBUGMSG(debug_sdl, "T4K_Setup_SDL_Text() - using SDL_Pango\n");
-
-    SDLPango_Init();
-    if (!Set_SDL_Pango_Font_Size(DEFAULT_FONT_SIZE))
+    if (!TTF_Init())
     {
-	fprintf(stderr, "\nError: I could not set SDL_Pango context\n");
+	fprintf(stderr, "\nError: I could not initialize SDL3_ttf\n");
 	return 0;
     }
     return 1;
-
-#else
-    /* using SDL_ttf: */
-    DEBUGMSG(debug_sdl, "T4K_Setup_SDL_Text() - using SDL_ttf\n");
-
-    if (TTF_Init() < 0)
-    {
-	fprintf(stderr, "\nError: I could not initialize SDL_ttf\n");
-	return 0;
-    }
-    return 1;
-#endif
 }
 
 
 
 void T4K_Cleanup_SDL_Text(void)
 {
-#if HAVE_LIBSDL_PANGO
-    if(context != NULL)
-	SDLPango_FreeContext(context);
-    context = NULL;
-#else
     free_font_list();
     TTF_Quit();
-#endif
 }
 
 
@@ -1348,20 +1301,12 @@ SDL_Surface* T4K_BlackOutline(const char* t, int size, const SDL_Color* c)
     Uint32 color_key;
 
     /* Make sure everything is sane before we proceed: */
-#if HAVE_LIBSDL_PANGO
-    if (!context)
-    {
-	fprintf(stderr, "T4K_BlackOutline(): invalid SDL_Pango context - returning.\n");
-	return NULL;
-    }
-#else
     TTF_Font* font = get_font(size);
     if (!font)
     {
 	fprintf(stderr, "T4K_BlackOutline(): could not load needed font - returning.\n");
 	return NULL;
     }
-#endif
 
     if (!t || !c)
     {
@@ -1378,14 +1323,7 @@ SDL_Surface* T4K_BlackOutline(const char* t, int size, const SDL_Color* c)
     DEBUGMSG(debug_sdl, "Entering T4K_BlackOutline():\n");
     DEBUGMSG(debug_sdl, "BlackOutline of \"%s\"\n", t );
 
-#if HAVE_LIBSDL_PANGO
-    Set_SDL_Pango_Font_Size(size);
-    SDLPango_SetDefaultColor(context, MATRIX_TRANSPARENT_BACK_BLACK_LETTER);
-    SDLPango_SetText(context, t, -1);
-    black_letters = SDLPango_CreateSurfaceDraw(context);
-#else
-    black_letters = TTF_RenderUTF8_Blended(font, t, black);
-#endif
+    black_letters = TTF_RenderText_Blended(font, t, 0, black);
 
     if (!black_letters)
     {
@@ -1412,26 +1350,10 @@ SDL_Surface* T4K_BlackOutline(const char* t, int size, const SDL_Color* c)
 	for (dstrect.y = 1; dstrect.y < 5; dstrect.y++)
 	    SDL_BlitSurface(black_letters , NULL, bg, &dstrect );
 
-    SDL_FreeSurface(black_letters);
+    SDL_DestroySurface(black_letters);
 
     /* --- Put the color version of the text on top! --- */
-#if HAVE_LIBSDL_PANGO
-    /* convert color arg: */
-    SDLPango_Matrix* color_matrix = SDL_Colour_to_SDLPango_Matrix(c);
-
-    if (color_matrix)
-    {
-	SDLPango_SetDefaultColor(context, color_matrix);
-	free(color_matrix);
-    }
-    else  /* fall back to just using white if conversion fails: */
-	SDLPango_SetDefaultColor(context, MATRIX_TRANSPARENT_BACK_WHITE_LETTER);
-
-    white_letters = SDLPango_CreateSurfaceDraw(context);
-
-#else
-    white_letters = TTF_RenderUTF8_Blended(font, t, *c);
-#endif
+    white_letters = TTF_RenderText_Blended(font, t, 0, *c);
 
     if (!white_letters)
     {
@@ -1442,12 +1364,12 @@ SDL_Surface* T4K_BlackOutline(const char* t, int size, const SDL_Color* c)
     dstrect.x = 1;
     dstrect.y = 1;
     SDL_BlitSurface(white_letters, NULL, bg, &dstrect);
-    SDL_FreeSurface(white_letters);
+    SDL_DestroySurface(white_letters);
 
     /* --- Convert to the screen format for quicker blits --- */
     SDL_SetColorKey(bg, SDL_SRCCOLORKEY|SDL_RLEACCEL, color_key);
     out = SDL_DisplayFormatAlpha(bg);
-    SDL_FreeSurface(bg);
+    SDL_DestroySurface(bg);
 
     DEBUGMSG(debug_sdl, "\nLeaving T4K_BlackOutline(): \n");
 
@@ -1466,35 +1388,12 @@ SDL_Surface* T4K_SimpleText(const char *t, int size, const SDL_Color* col)
     if (!col)
 	col = &black;
 
-#if HAVE_LIBSDL_PANGO
-    if (!context)
-    {
-	fprintf(stderr, "T4K_SimpleText() - context not valid!\n");
-	return NULL;
-    }
-    else
-    {
-	SDLPango_Matrix colormatrix =
-	{{
-	     {col->r,  col->r,  0,  0},
-	     {col->g,  col->g,  0,  0},
-	     {col->b,  col->b,  0,  0},
-	     {0,      255,      0,  0}
-	 }};
-	Set_SDL_Pango_Font_Size(size);
-	SDLPango_SetDefaultColor(context, &colormatrix );
-	SDLPango_SetText(context, t, -1);
-	surf = SDLPango_CreateSurfaceDraw(context);
-    }
-
-#else
     {
 	TTF_Font* font = get_font(size);
 	if (!font)
 	    return NULL;
-	surf = TTF_RenderUTF8_Blended(font, t, *col);
+	surf = TTF_RenderText_Blended(font, t, 0, *col);
     }
-#endif
 
     return surf;
 }
@@ -1517,25 +1416,14 @@ int T4K_CharsForWidth(int fontsize, int pixel_width)
 	s = T4K_SimpleText(buf, fontsize, &white);
 	if(s && s->w > pixel_width)  //means string of (i++) 'x' exceeds width
 	    done = 1;
-	SDL_FreeSurface(s);
+	SDL_DestroySurface(s);
     }
     return  i;
 }
 
 int size_text(const char* text, int font_size, int* width, int* height)
 {
-#if HAVE_LIBSDL_PANGO
-    int ret = 0;
-    SDL_Surface* temptext = T4K_SimpleText(text, font_size, &black);
-    if (width)
-	*width = temptext->w;
-    if (height)
-	*height = temptext->h;
-    SDL_FreeSurface(temptext);
-    return ret;
-#else
-    return TTF_SizeUTF8(get_font(font_size), text, width, height);
-#endif
+    return TTF_GetStringSize(get_font(font_size), text, 0, width, height) ? 0 : -1;
 }
 /* This (fast) function just returns a non-outlined surf */
 /* using SDL_Pango if available, SDL_ttf as fallback     */
@@ -1546,34 +1434,11 @@ SDL_Surface* T4K_SimpleTextWithOffset(const char *t, int size, const SDL_Color* 
     if (!t||!col)
 	return NULL;
 
-#if HAVE_LIBSDL_PANGO
-    if (!context)
-    {
-	fprintf(stderr, "T4K_SimpleText() - context not valid!\n");
-	return NULL;
-    }
-    else
-    {
-	SDLPango_Matrix colormatrix =
-	{{
-	     {col->r,  col->r,  0,  0},
-	     {col->g,  col->g,  0,  0},
-	     {col->b,  col->b,  0,  0},
-	     {0,      255,      0,  0}
-	 }};
-	Set_SDL_Pango_Font_Size(size);
-	SDLPango_SetDefaultColor(context, &colormatrix );
-	SDLPango_SetText(context, t, -1);
-	surf = SDLPango_CreateSurfaceDraw(context);
-	*glyph_offset = 0; // fixme?
-    }
-
-#else
     {
 	TTF_Font* font = get_font(size);
 	if (!font)
 	    return NULL;
-	surf = TTF_RenderUTF8_Blended(font, t, *col);
+	surf = TTF_RenderText_Blended(font, t, 0, *col);
 	{
 	    int h;
 	    int hmax = 0;
@@ -1581,14 +1446,13 @@ SDL_Surface* T4K_SimpleTextWithOffset(const char *t, int size, const SDL_Color* 
 	    int i;
 	    for (i = 0; i < len; i++)
 	    {
-		TTF_GlyphMetrics(font, t[i], NULL, NULL, NULL, &h, NULL);
+		TTF_GetGlyphMetrics(font, t[i], NULL, NULL, NULL, &h, NULL);
 		if (h > hmax)
 		    hmax = h;
 	    }
-	    *glyph_offset = hmax - TTF_FontAscent(font);
+	    *glyph_offset = hmax - TTF_GetFontAscent(font);
 	}
     }
-#endif
 
     return surf;
 }
@@ -1602,77 +1466,7 @@ SDL_Surface* T4K_SimpleTextWithOffset(const char *t, int size, const SDL_Color* 
 
 
 
-#if HAVE_LIBSDL_PANGO
-/* Local functions when using SDL_Pango:   */
-
-
-/* NOTE the scaling by 3/4 a few lines down represents a conversion from      */
-/* the usual text dpi of 72 to the typical screen dpi of 96. It gives         */
-/* font sizes fairly similar to a SDL_ttf font with the same numerical value. */
-static int Set_SDL_Pango_Font_Size(int size)
-{
-    /* static so we can "remember" values from previous time through: */
-    static int prev_pango_font_size;
-    static char prev_font_name[FONT_NAME_LENGTH];
-    /* Do nothing unless we need to change size or font: */
-    if ((size == prev_pango_font_size)
-	    &&
-	    (0 == strncmp(prev_font_name, T4K_AskFontName(), sizeof(prev_font_name))))
-	return 1;
-    else
-    {
-	char buf[64];
-
-	DEBUGMSG(debug_sdl, "Setting font size to %d\n", size);
-
-	if(context != NULL)
-	    SDLPango_FreeContext(context);
-	context = NULL;
-	snprintf(buf, sizeof(buf), "%s %d", T4K_AskFontName(), (int)((size * 3)/4));
-	context =  SDLPango_CreateContext_GivenFontDesc(buf);
-    }
-
-    if (!context)
-	return 0;
-    else
-    {
-	prev_pango_font_size = size;
-	strncpy(prev_font_name, T4K_AskFontName(), sizeof(prev_font_name));
-	return 1;
-    }
-}
-
-
-SDLPango_Matrix* SDL_Colour_to_SDLPango_Matrix(const SDL_Color *cl)
-{
-    int k = 0;
-    SDLPango_Matrix* colour = NULL;
-
-    if (!cl)
-    {
-	fprintf(stderr, "Invalid SDL_Color* arg\n");
-	return NULL;
-    }
-
-    colour = (SDLPango_Matrix*)malloc(sizeof(SDLPango_Matrix));
-
-    for(k = 0; k < 4; k++)
-    {
-	(*colour).m[0][k] = (*cl).r;
-	(*colour).m[1][k] = (*cl).g;
-	(*colour).m[2][k] = (*cl).b;
-    }
-    (*colour).m[3][0] = 0;
-    (*colour).m[3][1] = 255;
-    (*colour).m[3][2] = 0;
-    (*colour).m[3][3] = 0;
-
-    return colour;
-}
-
-#else
-
-/* Local functions when using SDL_ttf: */
+/* Local functions used by SDL3_ttf code above: */
 
 static void free_font_list(void)
 {
@@ -1751,7 +1545,3 @@ static TTF_Font* load_font(const char* font_name, int font_size)
 	return NULL;
     }
 }
-
-//#endif
-
-#endif

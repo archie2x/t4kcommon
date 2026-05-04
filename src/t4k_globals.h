@@ -27,15 +27,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 #define T4K_GLOBALS_H
 
 
-// Translation stuff (now works for Mac and Win too!): 
-#include "config.h"
+// Translation stuff (now works for Mac and Win too!):
 #include "gettext.h"
 #define _(String) gettext (String)
 #define gettext_noop(String) String
 #define N_(String) gettext_noop (String)
 
 #include "t4k_common.h"
-#include "SDL.h"
+#include <SDL3/SDL.h>
 
 #define REG_RGBA 16,16,96,96
 #define SEL_RGBA 16,16,128,128

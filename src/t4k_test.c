@@ -47,7 +47,6 @@
 //!     See COPYING file that comes with this distribution.
 //!
 
-#include "config.h"
 #include "t4k_common.h"
 
 int main(int argc, char* argv[])

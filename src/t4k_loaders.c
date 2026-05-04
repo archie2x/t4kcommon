@@ -587,13 +587,13 @@ SDL_Surface* load_image(const char* file_name, int mode, int w, int h, bool prop
 	    height = h;
 	}
 	final_pic = T4K_zoom(loaded_pic, width, height);
-	SDL_FreeSurface(loaded_pic);
+	SDL_DestroySurface(loaded_pic);
 	loaded_pic = final_pic;
 	final_pic = NULL;
     }
 
     final_pic = set_format(loaded_pic, mode);
-    SDL_FreeSurface(loaded_pic);
+    SDL_DestroySurface(loaded_pic);
     DEBUGMSG(debug_loaders, "Leaving load_image()\n\n");
 
     return final_pic;
@@ -668,7 +668,7 @@ SDL_Surface* T4K_LoadBkgd(const char* file_name, int width, int height)
     /* turn off transparency, since it's the background */
     SDL_SetAlpha(orig, SDL_RLEACCEL, SDL_ALPHA_OPAQUE);
     final_pic = SDL_DisplayFormat(orig); /* optimize the format */
-    SDL_FreeSurface(orig);
+    SDL_DestroySurface(orig);
 
     return final_pic;
 }
@@ -869,14 +869,14 @@ void T4K_FreeSprite(sprite* gfx)
 	DEBUGMSG(debug_loaders, ".");
 	if (gfx->frame[x])
 	{
-	    SDL_FreeSurface(gfx->frame[x]);
+	    SDL_DestroySurface(gfx->frame[x]);
 	    gfx->frame[x] = NULL;
 	}
     }
 
     if (gfx->default_img)
     {
-	SDL_FreeSurface(gfx->default_img);
+	SDL_DestroySurface(gfx->default_img);
 	gfx->default_img = NULL;
     }
 
