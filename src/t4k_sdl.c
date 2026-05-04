@@ -60,6 +60,14 @@ void T4K_RegisterWindow(SDL_Window* w)
 	SDL_GetWindowSize(w, &w_x, &w_y);
 	win_res_x = w_x;
 	win_res_y = w_y;
+	/* Populate the screen global immediately so callers that bypass
+	 * T4K_GetScreen() (e.g. T4K_SetRect, T4K_DarkenScreen) don't
+	 * dereference NULL. */
+	screen = SDL_GetWindowSurface(w);
+    }
+    else
+    {
+	screen = NULL;
     }
 }
 
@@ -1479,21 +1487,34 @@ static TTF_Font* get_font(int size)
 /* Returns ptr to loaded font if successful, NULL otherwise. */
 static TTF_Font* load_font(const char* font_name, int font_size)
 {
-    TTF_Font* f;
+    TTF_Font* f = NULL;
+    char rel[T4K_PATH_MAX];
     char fontfile[T4K_PATH_MAX];
-    sprintf(fontfile, "%s/fonts/%s", COMMON_DATA_PREFIX, font_name);
 
-    f = TTF_OpenFont(fontfile, font_size);
-
-    /* HACK - better font searching needed! */
-    /* This should mean that font wasn't bundled into data path, which for  */
-    /* now means we are using Debian, so grab from Debian installation loc: */
-    if (!f)
+    /* Search the registered data prefix list (T4K_AddDataPrefix) for fonts/<name>.
+     * The host app (tuxtype/tuxmath) registers its data dir there, which is
+     * where the bundled font lives. */
+    snprintf(rel, T4K_PATH_MAX, "fonts/%s", font_name);
+    const char* found = find_file(rel);
+    if (found && found[0])
     {
-	sprintf(fontfile, "/usr/share/fonts/truetype/ttf-sil-andika/AndikaDesRevG.ttf");
+	strncpy(fontfile, found, T4K_PATH_MAX - 1);
+	fontfile[T4K_PATH_MAX - 1] = '\0';
 	f = TTF_OpenFont(fontfile, font_size);
     }
 
+    /* Fallbacks: t4k_common's own data dir, then a typical Debian path. */
+    if (!f)
+    {
+	snprintf(fontfile, T4K_PATH_MAX, "%s/fonts/%s", COMMON_DATA_PREFIX, font_name);
+	f = TTF_OpenFont(fontfile, font_size);
+    }
+    if (!f)
+    {
+	snprintf(fontfile, T4K_PATH_MAX,
+		"/usr/share/fonts/truetype/ttf-sil-andika/AndikaDesRevG.ttf");
+	f = TTF_OpenFont(fontfile, font_size);
+    }
 
     if (f)
     {
